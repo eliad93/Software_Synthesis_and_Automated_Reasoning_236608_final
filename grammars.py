@@ -32,10 +32,10 @@ class Grammar:
                 "(0)+", "+(0)", "*(0)", "(0)*", "(0)-", "-(0)", "/(0)", "(0)/"]
 
     def str_trivial_programs(self):
-        raise NotImplementedError()
+        return []
 
     def list_trivial_programs(self):
-        raise NotImplementedError()
+        return []
 
 
 def init_program(grammar: Grammar) -> dict:
@@ -143,14 +143,45 @@ def produce(r: str, P: dict):
     return format_splited_programs(splitted_programs)
 
 
-def main():
-    g1 = Grammar(GrammarType.NUM, {"E", "OP", "NUM"},
-                 {"E": {"( E ) OP ( E )", "x_input", "NUM"},
-                  "OP": {"+", "-", "*", "/"},
-                  "NUM": {"0", "1", "2", "3", "4", "5", "6"}},
-                 "E")
-    print(bottom_up(g1, [(1, 7), (2, 12), (3, 15)]))
+def Concat(s1: str, s2: str) -> str:
+    return s1 + s2
 
 
-if __name__ == "__main__":
-    main()
+def Substr(s: str, i: int, j: int) -> str:
+    return s[i:j]
+
+
+def Len(s: str) -> int:
+    return len(s)
+
+
+def IndexOf(s1: str, s2: str) -> int:
+    return s1.find((s2))
+
+
+def Sort(l: list) -> list:
+    return sorted(l)
+
+
+def Reverse(l: list) -> list:
+    l = l[:]
+    l.reverse()
+    return l
+
+
+def Slice(s: list, i: int, j: int) -> list:
+    return s[i:j]
+
+
+# def main():
+#     g1 = Grammar(GrammarType.NUM,
+#                  {"E", "OP", "NUM"},
+#                  {"E": {"( E ) OP ( E )", "x_input", "NUM"},
+#                   "OP": {"+", "-", "*", "/"},
+#                   "NUM": {"0", "1", "2", "3", "4", "5", "6"}},
+#                  "E")
+#     print(bottom_up(g1, [(1, 7), (2, 12), (3, 15)]))
+#
+#
+# if __name__ == "__main__":
+#     main()
