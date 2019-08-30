@@ -95,9 +95,13 @@ g3_b4 = [([1, 2, 3], [2]), (["abc", "def"], ["def"])]
 g3_b5 = [([2, 8, 7, 4], [8, 7, 4, 2]),
          (['c', 'f', 'l', 'a'], ['l', 'f', 'c', 'a'])]
 
+# BENCHMARK 3.4: should slice the list tp keep only
+# the second entry of the list: Slice( Sort(x_input), 1 , 3 )
+g3_b6 = [([1, 2, 3, 0], [1, 2]), (["z", "abc", "def", "w"], ["def", "w"])]
+
 # BENCHMARK 3.6: should sort the list descendant and return only
 # the two first entries : Slice( Reverse( Sort( x_input ) , 0 , 2 )
-g3_b6 = [([2, 8, 7, 4], [8, 7]), (['c', 'f', 'l', 'a'], ['l', 'f'])]
+g3_b7 = [([2, 8, 7, 4], [8, 7]), (['c', 'f', 'l', 'a'], ['l', 'f'])]
 
 
 def run_function(grammar: syn.Grammar, benchmark: list, queue):
