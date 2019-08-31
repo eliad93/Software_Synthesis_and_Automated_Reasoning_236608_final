@@ -1,7 +1,9 @@
 import copy
+import time
 from enum import Enum
 from itertools import product
-from queue import PriorityQueue
+
+from inputs import *
 
 
 class GrammarType(Enum):
@@ -29,14 +31,16 @@ class Grammar:
 
     @staticmethod
     def numeric_trivial_programs():
-        return ["((x_input)-(x_input))", "(x_input)/(x_input)", "(1)*", "*(1)",
-                "(0)+", "+(0)", "*(0)", "(0)*", "(0)-", "-(0)", "/(0)", "(0)/"]
+        return ["((x_input)+(x_input))", "((x_input)-(x_input))",
+                "(x_input)/(x_input)", "(1)*", "*(1)", "(0)+", "+(0)", "*(0)",
+                "(0)*", "(0)-", "-(0)", "/(0)", "(0)/"]
 
     def str_trivial_programs(self):
-        return ["Sort(Sort(x_input))", "Reverse(Reverse(x_input))"]
+        return []
 
     def list_trivial_programs(self):
-        return []
+        return ["Sort(Sort(", "Reverse(Reverse(", "Slice(Slice(",
+                "0+", "+0", "1+1"]
 
 
 class Synthesizer:
@@ -48,40 +52,28 @@ class Synthesizer:
         self.E = None
 
     def bottom_up(self, E):
-        self.E = E
-        self.init_program()
+        self.init_program(E)
         print(len(self.non_checked_programs))
         # todo: create non ground rules dict
         while True:
             self.grow()
             print(len(self.non_checked_programs))
-            for p in self.non_checked_programs:  # self.P[self.g.starting]:
+            for p in self.non_checked_programs:
                 try:
                     if is_program_match(p, E):
                         return p
                 except:
                     pass
-            # Ranking
             self.non_checked_programs = []
 
-    def init_program(self):
+    def init_program(self, E):
         """
         deduce the base programs by the grammar
         :param grammar:
         :return:
         """
-        self.P = {}
-        self.non_checked_programs = []
-        for r in self.g.rules_groups:
-            for t in self.g.rules_groups[r]:
-                if ground(t):
-                    if r in self.P:
-                        self.P[r].append(t)
-                    else:
-                        self.P[r] = [t]
-                    # Ranking
-                    if r == self.g.starting:
-                        self.non_checked_programs.append(t)
+        self.E = E
+        self.init_starting_programs()
 
     def grow(self):
         new_P = copy.deepcopy(self.P)
@@ -90,11 +82,10 @@ class Synthesizer:
                 if not ground(r):
                     list_products = self.produce(r)
                     for p in list_products:
+                        p = "".join(p)
                         try:
-                            if not any(s in p for s in self.g.trivial_programs) \
-                                    and self.is_new_program(p):
+                            if self.insert_program_condition(p):
                                 new_P[r_g].append(p)
-                                # Ranking
                                 if r_g == self.g.starting:
                                     self.non_checked_programs.append(p)
                         except:
@@ -116,17 +107,11 @@ class Synthesizer:
             else:
                 lists_for_product.append([t])
         splitted_programs = product(*lists_for_product)
-        return format_splited_programs(splitted_programs)
+        return splitted_programs
 
-
-class Ranking(Synthesizer):
-    def __init__(self, g):
-        super().__init__(g)
-        self.target_program = None
-
-    def init_program(self):
+    def init_starting_programs(self):
         self.P = {}
-        self.non_checked_programs = PriorityQueue()
+        self.non_checked_programs = []
         for r in self.g.rules_groups:
             for t in self.g.rules_groups[r]:
                 if ground(t):
@@ -134,38 +119,105 @@ class Ranking(Synthesizer):
                         self.P[r].append(t)
                     else:
                         self.P[r] = [t]
-                    # Ranking
                     if r == self.g.starting:
-                        try:
-                            self.insert_new_program(t)
-                        except:
-                            pass
+                        self.non_checked_programs.append(t)
+
+    def insert_program_condition(self, p):
+        return not any(s in p for s in self.g.trivial_programs) \
+               and self.is_new_program(p)
+
+
+class BadExamplesSynthesizer(Synthesizer):
+    def __init__(self, g):
+        super().__init__(g)
+        self.E_not = None
 
     def bottom_up(self, E):
-        self.E = E
-        self.init_program()
-        # todo: create non ground rules dict
+        self.init_program(E)
+        print(len(self.non_checked_programs))
         while True:
-            self.target_program = self.non_checked_programs.get()
-            try:
-                if is_program_match(self.target_program, E):
-                    return self.target_program
-                else:
-                    self.grow()
-            except:
-                pass
+            self.grow()
+            print(len(self.non_checked_programs))
+            for p in self.non_checked_programs:
+                try:
+                    if is_program_match(p, self.E):
+                        return p
+                except:
+                    pass
+            self.non_checked_programs = []
 
-    def insert_new_program(self, t):
-        priority = self.calculate_priority(t)
-        self.non_checked_programs.put(priority, t)
+    def init_program(self, E):
+        self.E = E[0]
+        self.E_not = E[1]
+        self.init_starting_programs()
 
-    def calculate_priority(self, t):
-        num_correct_outputs = 0
-        for i, o in self.E:
+    def is_counter_example(self, t):
+        for i, o in self.E_not:
             x_input = i
             if eval(t) == o:
-                num_correct_outputs += 1
-        return num_correct_outputs / len(self.E)
+                return True
+        return False
+
+    def insert_program_condition(self, p):
+        return super().insert_program_condition(p) \
+               and not self.is_counter_example(p)
+
+
+class ConstraintsSynthesizer(BadExamplesSynthesizer):
+    def __init__(self, g):
+        super().__init__(g)
+        self.C = None
+
+    def init_program(self, E):
+        super().init_program(E)
+        self.C = E[2]
+
+    def insert_program_condition(self, p):
+        return super().insert_program_condition(p) \
+               and self.is_matching_constraints(p)
+
+    def is_matching_constraints(self, p):
+        return all([c(p) for c in self.C])
+
+
+class OptimizedSynthesizer(ConstraintsSynthesizer):
+    def __init__(self, g):
+        super().__init__(g)
+        self.solution = None
+
+    def bottom_up(self, E):
+        self.init_program(E)
+        self.solution = None
+        try:
+            for p in self.P[self.g.starting]:
+                if ground(p) and is_program_match(p, self.E):
+                    return p
+        except:
+            pass
+
+        while self.solution is None:
+            print(len(self.P[self.g.starting]))
+            self.grow()
+        return self.solution
+
+    def grow(self):
+        new_P = copy.deepcopy(self.P)
+        for r_g in self.g.rules_groups:
+            for r in self.g.rules_groups[r_g]:
+                if not ground(r):
+                    list_products = self.produce(r)
+                    for p in list_products:
+                        p = "".join(p)
+                        try:
+                            if self.insert_program_condition(p):
+                                new_P[r_g].append(p)
+                                if r_g == self.g.starting:
+                                    if is_program_match(p, self.E):
+                                        self.solution = p
+                                        return
+                        except:
+                            pass
+        self.P = new_P
 
 
 def is_observational_equivalent(p1, p2, E):
@@ -234,6 +286,14 @@ def Slice(s: list, i: int, j: int) -> list:
     return s[i:j]
 
 
+# GRAMMAR 1: ARITHMETIC OPERATORS
+g1 = Grammar(GrammarType.NUM,
+             {"E", "OP", "NUM"},
+             {"E": {"( E ) OP ( E )", "NUM", "x_input"},
+              "OP": {"+", "-", "*", "/"},
+              "NUM": {"1", "2", "6"}},
+             "E")
+
 g3 = Grammar(GrammarType.LIST,
              {"E", "NUM"},
              {"E": {"x_input", "Sort( E )", "Reverse( E )",
@@ -241,40 +301,16 @@ g3 = Grammar(GrammarType.LIST,
               "NUM": {"0", "1", "2", "NUM + NUM"}},
              "E")
 
-# BENCHMARK 3.1: should return the input: x_input
-g3_b1 = [([1, 2, 3], [1, 2, 3]), (["abc", "def"], ["abc", "def"])]
-
-# BENCHMARK 3.2: should sort the list: Sort( x_input )
-g3_b2 = [([2, 8, 7, 4], [2, 4, 7, 8]),
-         (['c', 'f', 'l', 'a'], ['a', 'c', 'f', 'l'])]
-
-# BENCHMARK 3.3: should reverse the list : Reverse( x_input )
-g3_b3 = [([3, 2, 1], [1, 2, 3]), (['a', 'c', 'f', 'l'], ['l', 'f', 'c', 'a'])]
-
-# BENCHMARK 3.4: should slice the list tp keep only
-# the second entry of the list: Slice(x_input, 1 , 2 )
-g3_b4 = [([1, 2, 3], [2]), (["abc", "def"], ["def"])]
-
-# BENCHMARK 3.5: should sort the list descendant: Reverse( Sort( x_input )
-g3_b5 = [([2, 8, 7, 4], [8, 7, 4, 2]),
-         (['c', 'f', 'l', 'a'], ['l', 'f', 'c', 'a'])]
-
-# BENCHMARK 3.4: should slice the list tp keep only
-# the second entry of the list: Slice( Sort(x_input), 1 , 3 )
-g3_b6 = [([1, 2, 3, 0], [1, 2]), (["z", "abc", "def", "w"], ["def", "w"])]
-
-# BENCHMARK 3.6: should sort the list descendant and return only
-# the two first entries : Slice( Reverse( Sort( x_input ) , 0 , 2 )
-g3_b7 = [([2, 8, 7, 4], [8, 7]), (['c', 'f', 'l', 'a'], ['l', 'f'])]
-
 
 def main():
-    g1 = Grammar(GrammarType.NUM,
-                 {"E", "OP", "NUM"},
-                 {"E": {"( E ) OP ( E )", "x_input", "NUM"},
-                  "OP": {"+", "-", "*", "/"},
-                  "NUM": {"0", "1", "2", "3", "4", "5", "6"}},
-                 "E")
+    syn = BadExamplesSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n]))
+    print(syn.bottom_up([g1_b2, g1_b2_n]))
+    print(syn.bottom_up([g1_b3, g1_b3_n]))
+    print(syn.bottom_up([g1_b4, g1_b4_n]))
+    print(syn.bottom_up([g1_b5, g1_b5_n]))
+
+    s = time.time()
     syn = Synthesizer(g3)
     print(syn.bottom_up(g3_b1))
     print(syn.bottom_up(g3_b2))
@@ -282,6 +318,45 @@ def main():
     print(syn.bottom_up(g3_b4))
     print(syn.bottom_up(g3_b5))
     print(syn.bottom_up(g3_b6))
+    print(syn.bottom_up(g3_b7))
+    e = time.time()
+    print(e - s)
+
+    s = time.time()
+    syn = BadExamplesSynthesizer(g3)
+    print(syn.bottom_up([g3_b1, g3_b1_n]))
+    print(syn.bottom_up([g3_b2, g3_b2_n]))
+    print(syn.bottom_up([g3_b3, g3_b3_n]))
+    print(syn.bottom_up([g3_b4, g3_b4_n]))
+    print(syn.bottom_up([g3_b5, g3_b5_n]))
+    print(syn.bottom_up([g3_b6, g3_b6_n]))
+    print(syn.bottom_up([g3_b7, g3_b7_n]))
+    e = time.time()
+    print(e - s)
+
+    s = time.time()
+    syn = ConstraintsSynthesizer(g3)
+    print(syn.bottom_up([g3_b1, g3_b1_n, g1_c1]))
+    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
+    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
+    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
+    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
+    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
+    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    e = time.time()
+    print(e - s)
+
+    s = time.time()
+    syn = OptimizedSynthesizer(g3)
+    print(syn.bottom_up([g3_b1, g3_b1_n, []]))
+    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
+    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
+    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
+    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
+    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
+    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    e = time.time()
+    print(e - s)
 
 
 if __name__ == "__main__":

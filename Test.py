@@ -26,7 +26,7 @@ g1_b3 = [(1, 1), (2, 8), (3, 27), (4, 64), (5, 125)]
 g1_b4 = [(2, 2), (3, 4.5), (4, 8), (5, 12.5)]
 
 # BENCHMARK 1.5: Sum from 1 to n, the combinatorial formula is: n(n + 1)/2
-g1_b5 = [(1, 1), (2, 3), (3, 6), (4, 10)]
+g1_b5 = [(1, 1), (2, 3), (3, 6), (4, 10), (5, 15)]
 
 # BENCHMARK 1.6: Sum of the square numbers from 1 to n,
 # the combinatorial formula is: n(n+1)(2n+1)/6
@@ -105,8 +105,9 @@ g3_b7 = [([2, 8, 7, 4], [8, 7]), (['c', 'f', 'l', 'a'], ['l', 'f'])]
 
 
 def run_function(grammar: syn.Grammar, benchmark: list, queue):
+    s = syn.Synthesizer(grammar)
     start = timeit.timeit()
-    prog = syn.bottom_up(grammar, benchmark)
+    prog = s.bottom_up(benchmark)
     end = timeit.timeit()
     output = [end - start, prog]
     queue.put(output)
@@ -130,6 +131,7 @@ def test_function(grammar: syn.Grammar, benchmark: list):
 
 if __name__ == '__main__':
     # todo: eliminate code duplicates - (hint: define a function)
+    # todo: run the tests with all classes, adjust output for classes
     data = []
     # NUMERIC TEST
     num_bench = [g1_b1, g1_b2, g1_b3, g1_b4, g1_b5]
