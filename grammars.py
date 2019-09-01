@@ -2,6 +2,7 @@ import copy
 import time
 from enum import Enum
 from itertools import product
+from multiprocessing.pool import Pool
 
 from inputs import *
 
@@ -220,6 +221,35 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
         self.P = new_P
 
 
+class ConcurrentSynthesizer(OptimizedSynthesizer):
+    def __init__(self, g):
+        super().__init__(g)
+
+    def wrapper(self, p):
+        p = "".join(p)
+        try:
+            res = self.insert_program_condition(p)
+        except:
+            res = False
+        return res, p
+
+    def grow(self):
+        new_P = copy.deepcopy(self.P)
+        for r_g in self.g.rules_groups:
+            for r in self.g.rules_groups[r_g]:
+                if not ground(r):
+                    list_products = self.produce(r)
+                    pool = Pool(6)
+                    for res, p in pool.map(self.wrapper, list_products):
+                        if res:
+                            new_P[r_g].append(p)
+                            if r_g == self.g.starting:
+                                if is_program_match(p, self.E):
+                                    self.solution = p
+                                    return
+        self.P = new_P
+
+
 def is_observational_equivalent(p1, p2, E):
     for i, o in E:
         x_input = i
@@ -303,58 +333,71 @@ g3 = Grammar(GrammarType.LIST,
 
 
 def main():
-    syn = BadExamplesSynthesizer(g1)
-    print(syn.bottom_up([g1_b1, g1_b1_n]))
-    print(syn.bottom_up([g1_b2, g1_b2_n]))
-    print(syn.bottom_up([g1_b3, g1_b3_n]))
-    print(syn.bottom_up([g1_b4, g1_b4_n]))
-    print(syn.bottom_up([g1_b5, g1_b5_n]))
+
+    # syn = BadExamplesSynthesizer(g1)
+    # print(syn.bottom_up([g1_b1, g1_b1_n]))
+    # print(syn.bottom_up([g1_b2, g1_b2_n]))
+    # print(syn.bottom_up([g1_b3, g1_b3_n]))
+    # print(syn.bottom_up([g1_b4, g1_b4_n]))
+    # print(syn.bottom_up([g1_b5, g1_b5_n]))
+    #
+    # s = time.time()
+    # syn = Synthesizer(g3)
+    # print(syn.bottom_up(g3_b1))
+    # print(syn.bottom_up(g3_b2))
+    # print(syn.bottom_up(g3_b3))
+    # print(syn.bottom_up(g3_b4))
+    # print(syn.bottom_up(g3_b5))
+    # print(syn.bottom_up(g3_b6))
+    # print(syn.bottom_up(g3_b7))
+    # e = time.time()
+    # print(e - s)
+    #
+    # s = time.time()
+    # syn = BadExamplesSynthesizer(g3)
+    # print(syn.bottom_up([g3_b1, g3_b1_n]))
+    # print(syn.bottom_up([g3_b2, g3_b2_n]))
+    # print(syn.bottom_up([g3_b3, g3_b3_n]))
+    # print(syn.bottom_up([g3_b4, g3_b4_n]))
+    # print(syn.bottom_up([g3_b5, g3_b5_n]))
+    # print(syn.bottom_up([g3_b6, g3_b6_n]))
+    # print(syn.bottom_up([g3_b7, g3_b7_n]))
+    # e = time.time()
+    # print(e - s)
+    #
+    # s = time.time()
+    # syn = ConstraintsSynthesizer(g3)
+    # print(syn.bottom_up([g3_b1, g3_b1_n, g1_c1]))
+    # print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
+    # print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
+    # print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
+    # print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
+    # print(syn.bottom_up([g3_b6, g3_b6_n, []]))
+    # print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    # e = time.time()
+    # print(e - s)
+    #
+    # s = time.time()
+    # syn = OptimizedSynthesizer(g3)
+    # print(syn.bottom_up([g3_b1, g3_b1_n, []]))
+    # print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
+    # print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
+    # print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
+    # print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
+    # print(syn.bottom_up([g3_b6, g3_b6_n, []]))
+    # print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    # e = time.time()
+    # print(e - s)
 
     s = time.time()
-    syn = Synthesizer(g3)
-    print(syn.bottom_up(g3_b1))
-    print(syn.bottom_up(g3_b2))
-    print(syn.bottom_up(g3_b3))
-    print(syn.bottom_up(g3_b4))
-    print(syn.bottom_up(g3_b5))
-    print(syn.bottom_up(g3_b6))
-    print(syn.bottom_up(g3_b7))
-    e = time.time()
-    print(e - s)
-
-    s = time.time()
-    syn = BadExamplesSynthesizer(g3)
-    print(syn.bottom_up([g3_b1, g3_b1_n]))
-    print(syn.bottom_up([g3_b2, g3_b2_n]))
-    print(syn.bottom_up([g3_b3, g3_b3_n]))
-    print(syn.bottom_up([g3_b4, g3_b4_n]))
-    print(syn.bottom_up([g3_b5, g3_b5_n]))
-    print(syn.bottom_up([g3_b6, g3_b6_n]))
-    print(syn.bottom_up([g3_b7, g3_b7_n]))
-    e = time.time()
-    print(e - s)
-
-    s = time.time()
-    syn = ConstraintsSynthesizer(g3)
-    print(syn.bottom_up([g3_b1, g3_b1_n, g1_c1]))
-    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
-    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
-    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
-    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
-    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
-    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
-    e = time.time()
-    print(e - s)
-
-    s = time.time()
-    syn = OptimizedSynthesizer(g3)
-    print(syn.bottom_up([g3_b1, g3_b1_n, []]))
-    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
-    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
-    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
-    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
-    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
-    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    syn = ConcurrentSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n, []]))
+    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
+    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
+    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
+    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    print(syn.bottom_up([g1_b6, g1_b6_n, []]))
+    print(syn.bottom_up([g1_b7, g1_b7_n, g1_c7]))
     e = time.time()
     print(e - s)
 
