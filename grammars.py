@@ -338,12 +338,12 @@ g3 = Grammar(GrammarType.LIST,
 
 def main():
 
-    syn = BadExamplesSynthesizer(g1)
-    print(syn.bottom_up([g1_b1, g1_b1_n]))
-    print(syn.bottom_up([g1_b2, g1_b2_n]))
-    print(syn.bottom_up([g1_b3, g1_b3_n]))
-    print(syn.bottom_up([g1_b4, g1_b4_n]))
-    print(syn.bottom_up([g1_b5, g1_b5_n]))
+    # syn = BadExamplesSynthesizer(g1)
+    # print(syn.bottom_up([g1_b1, g1_b1_n]))
+    # print(syn.bottom_up([g1_b2, g1_b2_n]))
+    # print(syn.bottom_up([g1_b3, g1_b3_n]))
+    # print(syn.bottom_up([g1_b4, g1_b4_n]))
+    # print(syn.bottom_up([g1_b5, g1_b5_n]))
 
     s = time.time()
     syn = Synthesizer(g3)
@@ -355,7 +355,7 @@ def main():
     print(syn.bottom_up(g3_b6))
     print(syn.bottom_up(g3_b7))
     e = time.time()
-    print(e - s)
+    print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = BadExamplesSynthesizer(g3)
@@ -367,7 +367,7 @@ def main():
     print(syn.bottom_up([g3_b6, g3_b6_n]))
     print(syn.bottom_up([g3_b7, g3_b7_n]))
     e = time.time()
-    print(e - s)
+    print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = ConstraintsSynthesizer(g3)
@@ -379,7 +379,7 @@ def main():
     print(syn.bottom_up([g3_b6, g3_b6_n, []]))
     print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
     e = time.time()
-    print(e - s)
+    print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = OptimizedSynthesizer(g3)
@@ -391,7 +391,7 @@ def main():
     print(syn.bottom_up([g3_b6, g3_b6_n, []]))
     print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
     e = time.time()
-    print(e - s)
+    print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = ConcurrentSynthesizer(g3)
@@ -403,7 +403,7 @@ def main():
     print(syn.bottom_up([g3_b6, g3_b6_n, []]))
     print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
     e = time.time()
-    print(e - s)
+    print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = ConcurrentSynthesizer(g1)
@@ -415,7 +415,7 @@ def main():
     print(syn.bottom_up([g1_b6, g1_b6_n, []]))
     print(syn.bottom_up([g1_b7, g1_b7_n, g1_c7]))
     e = time.time()
-    print(e - s)
+    print("{} {}".format(type(syn), e - s))
 
 
 if __name__ == "__main__":
