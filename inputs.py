@@ -1,3 +1,6 @@
+from collections import Counter
+
+
 def c1(p):
     return len(p) > 3
 
@@ -23,17 +26,28 @@ def c4(p):
 
 
 def c5(p):
-    if p.count('+') > 2 or p.count('*') > 3 or p.count('/') > 1 or \
-            p.count("x_input") > 3 or p.count('1') > 2 or p.count('2') > 1 \
-            or p.count('6') > 1 or p.count('E') > 4 or p.count('(') > 4:
+    if p.count('+') > 3 or p.count('*') > 3 or p.count('/') > 1 or \
+            p.count("x_input") > 6 or p.count('1') > 2 or p.count('2') > 1 \
+            or p.count('6') > 1:
         return False
     return True
 
 
 def c6(p):
-    if "-" in p or "/(1)" in p or "/(2)" in p or\
-            ("/" in p and "/(6)" not in p) or\
-            ("/" in p and "x_input" not in p):
+    letter_counts = Counter(p)
+    if letter_counts['6'] > 1 or letter_counts['-'] > 1 or letter_counts['/'] \
+            > 1 or letter_counts['*'] > 3 or letter_counts['1'] > 2 or \
+            letter_counts['+'] > 2 or letter_counts["x_input"] > 3:
+        return False
+    return True
+
+
+def c7(p: str):
+    letter_counts = Counter(p)
+    if letter_counts['6'] > 0 or letter_counts['-'] > 0 or \
+            letter_counts['/'] > 1 or letter_counts['*'] > 4 or \
+            letter_counts['1'] > 2 or letter_counts['+'] > 2 \
+            or p.count("x_input") > 4:
         return False
     return True
 
@@ -68,15 +82,15 @@ g1_b4_n = []
 g1_b5_n = [(1, 3), (1, 4), (1, 5), (1, 6), (1, 7),
            (1, 8), (1, 9), (3, 3), (4, 3), (5, 10)]
 g1_b6_n = [(1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13)]
-g1_b7_n = []
+g1_b7_n = [(1, 5), (1, 7), (1, 10), (1, 11), (1, 13), (2, 7), (2, 5), (4, 11), (4, 30), (5, 49)]
 
 g1_c1 = [c1, c2]
 g1_c2 = [c1, c2]
 g1_c3 = [c1, c2]
 g1_c4 = [c1, c2]
-g1_c5 = [c1, c2]
-g1_c6 = [c4, c5, c6]
-g1_c7 = [c1, c2]
+g1_c5 = []
+g1_c6 = [c6]
+g1_c7 = [c7]
 
 # BENCHMARK 2.1: should return the input: x_input
 g2_b1 = [("abcd", "abcd"), ("a", "a")]

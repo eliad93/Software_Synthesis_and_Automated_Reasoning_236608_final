@@ -1,11 +1,17 @@
 import copy
-import multiprocessing
 import time
 from enum import Enum
 from itertools import product
 from multiprocessing.pool import Pool
 
 from inputs import *
+
+global pool
+
+
+def set_global_pool():
+    global pool
+    pool = Pool(7)  # type: Pool
 
 
 class GrammarType(Enum):
@@ -55,14 +61,14 @@ class Synthesizer:
 
     def bottom_up(self, E):
         self.init_program(E)
-        print(len(self.non_checked_programs))
+        # print(len(self.non_checked_programs))
         # todo: create non ground rules dict
         while True:
             self.grow()
-            print(len(self.non_checked_programs))
+            # print(len(self.non_checked_programs))
             for p in self.non_checked_programs:
                 try:
-                    if is_program_match(p, E):
+                    if is_program_match(p, self.E):
                         return p
                 except:
                     pass
@@ -74,7 +80,7 @@ class Synthesizer:
         :param grammar:
         :return:
         """
-        self.E = E
+        self.E = E[0]
         self.init_starting_programs()
 
     def grow(self):
@@ -82,11 +88,10 @@ class Synthesizer:
         for r_g in self.g.rules_groups:
             for r in self.g.rules_groups[r_g]:
                 if not ground(r):
-                    list_products = self.produce(r)
+                    list_products = map(lambda x: "".join(x), self.produce(r))
                     for p in list_products:
-                        p = "".join(p)
                         try:
-                            if self.insert_program_condition(p):
+                            if self.insert_program_condition(p, r_g):
                                 new_P[r_g].append(p)
                                 if r_g == self.g.starting:
                                     self.non_checked_programs.append(p)
@@ -94,8 +99,8 @@ class Synthesizer:
                             pass
         self.P = new_P
 
-    def is_new_program(self, p):
-        for p2 in self.P[self.g.starting]:
+    def is_new_program(self, p, r_g):
+        for p2 in self.P[r_g]:
             if is_observational_equivalent(p, p2, self.E):
                 return False
         return True
@@ -124,9 +129,9 @@ class Synthesizer:
                     if r == self.g.starting:
                         self.non_checked_programs.append(t)
 
-    def insert_program_condition(self, p):
+    def insert_program_condition(self, p, r_g):
         return not any(s in p for s in self.g.trivial_programs) \
-               and self.is_new_program(p)
+               and self.is_new_program(p, r_g)
 
 
 class BadExamplesSynthesizer(Synthesizer):
@@ -136,10 +141,10 @@ class BadExamplesSynthesizer(Synthesizer):
 
     def bottom_up(self, E):
         self.init_program(E)
-        print(len(self.non_checked_programs))
+        # print(len(self.non_checked_programs))
         while True:
             self.grow()
-            print(len(self.non_checked_programs))
+            # print(len(self.non_checked_programs))
             for p in self.non_checked_programs:
                 try:
                     if is_program_match(p, self.E):
@@ -160,8 +165,8 @@ class BadExamplesSynthesizer(Synthesizer):
                 return True
         return False
 
-    def insert_program_condition(self, p):
-        return super().insert_program_condition(p) \
+    def insert_program_condition(self, p, r_g):
+        return super().insert_program_condition(p, r_g) \
                and not self.is_counter_example(p)
 
 
@@ -174,8 +179,8 @@ class ConstraintsSynthesizer(BadExamplesSynthesizer):
         super().init_program(E)
         self.C = E[2]
 
-    def insert_program_condition(self, p):
-        return super().insert_program_condition(p) \
+    def insert_program_condition(self, p, r_g):
+        return super().insert_program_condition(p, r_g) \
                and self.is_matching_constraints(p)
 
     def is_matching_constraints(self, p):
@@ -207,11 +212,10 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
         for r_g in self.g.rules_groups:
             for r in self.g.rules_groups[r_g]:
                 if not ground(r):
-                    list_products = self.produce(r)
+                    list_products = map(lambda x: "".join(x), self.produce(r))
                     for p in list_products:
-                        p = "".join(p)
                         try:
-                            if self.insert_program_condition(p):
+                            if self.insert_program_condition(p, r_g):
                                 new_P[r_g].append(p)
                                 if r_g == self.g.starting:
                                     if is_program_match(p, self.E):
@@ -220,6 +224,95 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
                         except:
                             pass
         self.P = new_P
+
+
+class NoDuplicatesSynthesizer(OptimizedSynthesizer):
+    def __init__(self, g):
+        super().__init__(g)
+        self.solution = None
+        self.new_P = None
+
+    def grow(self):
+        self.new_P = {}
+        for r in self.g.rules_groups:
+            self.new_P[r] = []
+        for r_g in self.g.rules_groups:
+            for r in self.g.rules_groups[r_g]:
+                if not ground(r):
+                    list_products = map(lambda x: "".join(x), self.produce(r))
+                    for p in list_products:
+                        try:
+                            if self.insert_program_condition(p, r_g):
+                                self.new_P[r_g].append(p)
+                                if r_g == self.g.starting:
+                                    if is_program_match(p, self.E):
+                                        self.solution = p
+                                        return
+                        except:
+                            pass
+        for p_g in self.new_P:
+            for p in self.new_P[p_g]:
+                self.P[p_g].append(p)
+        self.new_P = None
+
+    def is_new_program(self, p, r_g):
+        for p2 in self.P[r_g]:
+            if is_observational_equivalent(p, p2, self.E):
+                return False
+        for p2 in self.new_P[r_g]:
+            if is_observational_equivalent(p, p2, self.E):
+                return False
+        return True
+
+
+class ParallelSynthesizer(NoDuplicatesSynthesizer):
+    def __init__(self, g: Grammar):
+        super().__init__(g)
+        self.depth = 0
+
+    def bottom_up(self, E):
+        self.depth = 0
+        return super().bottom_up(E)
+
+    def grow(self):
+        self.depth += 1
+        if self.depth < 3:
+            super().grow()
+        else:
+            global pool
+            x = pool  # type: Pool
+            self.new_P = {}
+            for r in self.g.rules_groups:
+                self.new_P[r] = []
+            for r_g in self.g.rules_groups:
+                for r in self.g.rules_groups[r_g]:
+                    if not ground(r):
+                        list_products = map(lambda x: ("".join(x), r_g),
+                                            self.produce(r))
+                        for p, insert_res, match_res in x.imap_unordered(
+                                self.insert_program_condition_parallel,
+                                list_products, chunksize=32):
+                            if match_res:
+                                self.solution = p
+                                return
+                            if insert_res:
+                                self.new_P[r_g].append(p)
+            for p_g in self.new_P:
+                for p in self.new_P[p_g]:
+                    self.P[p_g].append(p)
+            self.new_P = None
+
+    def insert_program_condition_parallel(self, A):
+        p = A[0]
+        r_g = A[1]
+        insert_res = False
+        try:
+            insert_res = super().insert_program_condition(p, r_g)
+            match_res = is_program_match(p, self.E)
+            # print(p)
+            return p, insert_res, match_res
+        except:
+            return None, insert_res, False
 
 
 def is_observational_equivalent(p1, p2, E):
@@ -251,11 +344,6 @@ def is_program_match(p, d):
         if eval(p) != o:
             return False
     return True
-
-
-def format_splited_programs(splitted_programs):
-    formatted_programs = ["".join(p) for p in splitted_programs]
-    return formatted_programs
 
 
 def Concat(s1: str, s2: str) -> str:
@@ -305,16 +393,15 @@ g3 = Grammar(GrammarType.LIST,
 
 
 def main():
-
     s = time.time()
     syn = Synthesizer(g3)
-    print(syn.bottom_up(g3_b1))
-    print(syn.bottom_up(g3_b2))
-    print(syn.bottom_up(g3_b3))
-    print(syn.bottom_up(g3_b4))
-    print(syn.bottom_up(g3_b5))
-    print(syn.bottom_up(g3_b6))
-    print(syn.bottom_up(g3_b7))
+    print(syn.bottom_up([g3_b1]))
+    print(syn.bottom_up([g3_b2]))
+    print(syn.bottom_up([g3_b3]))
+    print(syn.bottom_up([g3_b4]))
+    print(syn.bottom_up([g3_b5]))
+    print(syn.bottom_up([g3_b6]))
+    print(syn.bottom_up([g3_b7]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
@@ -355,11 +442,24 @@ def main():
     print("{} {}".format(type(syn), e - s))
 
     s = time.time()
+    syn = NoDuplicatesSynthesizer(g3)
+    print(syn.bottom_up([g3_b1, g3_b1_n, []]))
+    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
+    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
+    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
+    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
+    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
+    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
     syn = Synthesizer(g1)
-    print(syn.bottom_up(g1_b1))
-    print(syn.bottom_up(g1_b2))
-    print(syn.bottom_up(g1_b3))
-    print(syn.bottom_up(g1_b4))
+    print(syn.bottom_up([g1_b1]))
+    print(syn.bottom_up([g1_b2]))
+    print(syn.bottom_up([g1_b3]))
+    print(syn.bottom_up([g1_b4]))
+    print(syn.bottom_up([g1_b5]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
@@ -379,6 +479,7 @@ def main():
     print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
     print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
     print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
+    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
@@ -389,6 +490,29 @@ def main():
     print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
     print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
     print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = NoDuplicatesSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
+    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
+    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
+    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
+    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    set_global_pool()
+
+    s = time.time()
+    syn = ParallelSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
+    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
+    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
+    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
+    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    print(syn.bottom_up([g1_b7, g1_b7_n, g1_c7]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
