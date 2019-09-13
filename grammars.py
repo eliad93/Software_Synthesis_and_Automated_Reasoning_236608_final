@@ -6,6 +6,7 @@ from multiprocessing.pool import Pool
 
 from inputs import *
 
+# noinspection PyGlobalUndefined
 global pool
 
 
@@ -21,10 +22,8 @@ class GrammarType(Enum):
 
 
 class Grammar:
-    def __init__(self, grammar_type: GrammarType, non_terminals, rules_groups,
-                 starting):
+    def __init__(self, grammar_type: GrammarType, rules_groups, starting):
         self.grammar_type = grammar_type
-        self.syntax = non_terminals
         self.rules_groups = rules_groups
         self.starting = starting
         self.trivial_programs = self.create_trivial_programs()
@@ -43,14 +42,18 @@ class Grammar:
                 "(x_input)/(x_input)", "(1)*", "*(1)", "(0)+", "+(0)", "*(0)",
                 "(0)*", "(0)-", "-(0)", "/(0)", "(0)/"]
 
-    def str_trivial_programs(self):
-        return []
+    @staticmethod
+    def str_trivial_programs():
+        return ["slice_str(slice_str(", "reverse_str(reverse_str(",
+                "std_substr(std_substr("]
 
-    def list_trivial_programs(self):
-        return ["Sort(Sort(", "Reverse(Reverse(", "Slice(Slice(",
-                "0+", "+0", "1+1"]
+    @staticmethod
+    def list_trivial_programs():
+        return ["std_sort(std_sort(", "std_reverse(std_reverse(",
+                "std_slice(std_slice(", "0+", "+0", "1+1"]
 
 
+# noinspection PyPep8Naming,PyBroadException
 class Synthesizer:
 
     def __init__(self, g: Grammar):
@@ -58,13 +61,18 @@ class Synthesizer:
         self.P = {}
         self.non_checked_programs = []
         self.E = None
+        self.sizes = {}
 
     def bottom_up(self, E):
         self.init_program(E)
+        if self.is_unrealizable():
+            return None
         # print(len(self.non_checked_programs))
-        # todo: create non ground rules dict
         while True:
+            self.save_sizes()
             self.grow()
+            if self.is_stuck():
+                return None
             # print(len(self.non_checked_programs))
             for p in self.non_checked_programs:
                 try:
@@ -77,7 +85,6 @@ class Synthesizer:
     def init_program(self, E):
         """
         deduce the base programs by the grammar
-        :param grammar:
         :return:
         """
         self.E = E[0]
@@ -113,8 +120,8 @@ class Synthesizer:
                 lists_for_product.append(self.P[t])
             else:
                 lists_for_product.append([t])
-        splitted_programs = product(*lists_for_product)
-        return splitted_programs
+        split_programs = product(*lists_for_product)
+        return split_programs
 
     def init_starting_programs(self):
         self.P = {}
@@ -133,31 +140,43 @@ class Synthesizer:
         return not any(s in p for s in self.g.trivial_programs) \
                and self.is_new_program(p, r_g)
 
+    def is_unrealizable(self):
+        input_dict = {}
+        for i, o in self.E:
+            try:  # make sure it's immutable!
+                value = tuple(i)
+            except TypeError:
+                value = i
+            if value in input_dict:
+                if input_dict[value] != o:
+                    return True
+            else:
+                input_dict[value] = o
+        return False
+
+    def save_sizes(self):
+        self.sizes = {}
+        for r in self.P:
+            self.sizes[r] = len(self.P[r])
+
+    def is_stuck(self):
+        for r in self.P:
+            if self.sizes[r] != len(self.P[r]):
+                return False
+        return True
+
 
 class BadExamplesSynthesizer(Synthesizer):
     def __init__(self, g):
         super().__init__(g)
         self.E_not = None
 
-    def bottom_up(self, E):
-        self.init_program(E)
-        # print(len(self.non_checked_programs))
-        while True:
-            self.grow()
-            # print(len(self.non_checked_programs))
-            for p in self.non_checked_programs:
-                try:
-                    if is_program_match(p, self.E):
-                        return p
-                except:
-                    pass
-            self.non_checked_programs = []
-
     def init_program(self, E):
         self.E = E[0]
         self.E_not = E[1]
         self.init_starting_programs()
 
+    # noinspection PyUnusedLocal
     def is_counter_example(self, t):
         for i, o in self.E_not:
             x_input = i
@@ -169,7 +188,30 @@ class BadExamplesSynthesizer(Synthesizer):
         return super().insert_program_condition(p, r_g) \
                and not self.is_counter_example(p)
 
+    def is_unrealizable(self):
+        input_dict = {}
+        for i, o in self.E:
+            try:  # make sure it's immutable!
+                value = tuple(i)
+            except TypeError:
+                value = i
+            if value in input_dict:
+                if input_dict[value] != o:
+                    return True
+            else:
+                input_dict[value] = o
+        for i, o in self.E_not:
+            try:  # make sure it's immutable!
+                value = tuple(i)
+            except TypeError:
+                value = i
+            if value in input_dict:
+                if input_dict[value] == o:
+                    return True
+        return False
 
+
+# noinspection PyPep8Naming
 class ConstraintsSynthesizer(BadExamplesSynthesizer):
     def __init__(self, g):
         super().__init__(g)
@@ -187,6 +229,7 @@ class ConstraintsSynthesizer(BadExamplesSynthesizer):
         return all([c(p) for c in self.C])
 
 
+# noinspection PyPep8Naming,PyBroadException
 class OptimizedSynthesizer(ConstraintsSynthesizer):
     def __init__(self, g):
         super().__init__(g)
@@ -194,6 +237,8 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
 
     def bottom_up(self, E):
         self.init_program(E)
+        if self.is_unrealizable():
+            return None
         self.solution = None
         try:
             for p in self.P[self.g.starting]:
@@ -203,8 +248,11 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
             pass
 
         while self.solution is None:
-            print(len(self.P[self.g.starting]))
+            # print(len(self.P[self.g.starting]))
+            self.save_sizes()
             self.grow()
+            if self.solution is None and self.is_stuck():
+                return None
         return self.solution
 
     def grow(self):
@@ -226,6 +274,7 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
         self.P = new_P
 
 
+# noinspection PyBroadException
 class NoDuplicatesSynthesizer(OptimizedSynthesizer):
     def __init__(self, g):
         super().__init__(g)
@@ -265,6 +314,7 @@ class NoDuplicatesSynthesizer(OptimizedSynthesizer):
         return True
 
 
+# noinspection PyBroadException
 class ParallelSynthesizer(NoDuplicatesSynthesizer):
     def __init__(self, g: Grammar):
         super().__init__(g)
@@ -287,7 +337,7 @@ class ParallelSynthesizer(NoDuplicatesSynthesizer):
             for r_g in self.g.rules_groups:
                 for r in self.g.rules_groups[r_g]:
                     if not ground(r):
-                        list_products = map(lambda x: ("".join(x), r_g),
+                        list_products = map(lambda var: ("".join(var), r_g),
                                             self.produce(r))
                         for p, insert_res, match_res in x.imap_unordered(
                                 self.insert_program_condition_parallel,
@@ -309,12 +359,12 @@ class ParallelSynthesizer(NoDuplicatesSynthesizer):
         try:
             insert_res = super().insert_program_condition(p, r_g)
             match_res = is_program_match(p, self.E)
-            # print(p)
             return p, insert_res, match_res
         except:
             return None, insert_res, False
 
 
+# noinspection PyUnusedLocal
 def is_observational_equivalent(p1, p2, E):
     for i, o in E:
         x_input = i
@@ -338,6 +388,7 @@ def ground(t: str) -> bool:
     return True
 
 
+# noinspection PyUnusedLocal
 def is_program_match(p, d):
     for i, o in d:
         x_input = i
@@ -346,53 +397,207 @@ def is_program_match(p, d):
     return True
 
 
-def Concat(s1: str, s2: str) -> str:
+def std_concat(s1: str, s2: str) -> str:
     return s1 + s2
 
 
-def Substr(s: str, i: int, j: int) -> str:
+def std_substr(s: str, i: int, j: int) -> str:
     return s[i:j]
 
 
-def Len(s: str) -> int:
-    return len(s)
-
-
-def IndexOf(s1: str, s2: str) -> int:
-    return s1.find((s2))
-
-
-def Sort(l: list) -> list:
+def std_sort(l: list) -> list:
     return sorted(l)
 
 
-def Reverse(l: list) -> list:
-    l = l[:]
-    l.reverse()
-    return l
+def std_reverse(m_list: list) -> list:
+    m_list = m_list[:]
+    m_list.reverse()
+    return m_list
 
 
-def Slice(s: list, i: int, j: int) -> list:
+def std_slice(s: list, i: int, j: int) -> list:
     return s[i:j]
+
+
+def reverse_str(s: str) -> str:
+    t = s[::-1]
+    return t
+
+
+def slice_str(s: str, i: int, j: int, k: int) -> str:
+    return s[i:j:k]
 
 
 # GRAMMAR 1: ARITHMETIC OPERATORS
 g1 = Grammar(GrammarType.NUM,
-             {"E", "OP", "NUM"},
-             {"E": {"( E ) OP ( E )", "NUM", "x_input"},
-              "OP": {"+", "-", "*", "/"},
-              "NUM": {"1", "2", "6"}},
+             {"E": ["( E ) OP ( E )", "NUM", "x_input"],
+              "OP": ["+", "-", "*", "/"],
+              "NUM": ["1", "2", "6"]},
              "E")
 
+g2 = Grammar(GrammarType.STR,
+             {"E": ["std_concat( E , E )", "std_substr( E , I , I )",
+                    "x_input"],
+              "I": ["0", "1", "2", "3", "I - I", "len( E )"]},
+             "E")
+g2_plus = Grammar(GrammarType.STR,
+                  {"E": ["std_concat( E , E )",
+                         "reverse_str( E )", "slice_str( E , I , I , I )",
+                         "x_input"],
+                   "I": ["-1", "-2", "-3", "-4", "-5", "0", "1", "2", "3", "4",
+                         "5", "len( E )"]},
+                  "E")
+
 g3 = Grammar(GrammarType.LIST,
-             {"E", "NUM"},
-             {"E": {"x_input", "Sort( E )", "Reverse( E )",
-                    "Slice( E , NUM , NUM )"},
-              "NUM": {"0", "1", "2", "NUM + NUM"}},
+             {"E": ["x_input", "[]", "std_sort( E )", "std_reverse( E )",
+                    "std_slice( E , NUM , NUM )"],
+              "NUM": ["0", "1", "2", "NUM + NUM"]},
              "E")
 
 
 def main():
+    s = time.time()
+    syn = Synthesizer(g1)
+    print(syn.bottom_up([g1_b1]))
+    print(syn.bottom_up([g1_b2]))
+    print(syn.bottom_up([g1_b3]))
+    print(syn.bottom_up([g1_b4]))
+    print(syn.bottom_up([g1_b5]))
+    print(syn.bottom_up([g1_b7]))
+    print(syn.bottom_up([g1_b8]))
+    print(syn.bottom_up([g1_b9]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = BadExamplesSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n]))
+    print(syn.bottom_up([g1_b2, g1_b2_n]))
+    print(syn.bottom_up([g1_b3, g1_b3_n]))
+    print(syn.bottom_up([g1_b4, g1_b4_n]))
+    print(syn.bottom_up([g1_b5, g1_b5_n]))
+    print(syn.bottom_up([g1_b7, g1_b7_n]))
+    print(syn.bottom_up([g1_b8, g1_b8_n]))
+    print(syn.bottom_up([g1_b9, g1_b9_n]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = ConstraintsSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
+    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
+    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
+    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
+    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    print(syn.bottom_up([g1_b7, g1_b7_n, g1_c7]))
+    print(syn.bottom_up([g1_b8, g1_b8_n, g1_c8]))
+    print(syn.bottom_up([g1_b9, g1_b9_n, g1_c9]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = OptimizedSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
+    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
+    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
+    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
+    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    print(syn.bottom_up([g1_b7, g1_b7_n, g1_c7]))
+    print(syn.bottom_up([g1_b8, g1_b8_n, g1_c8]))
+    print(syn.bottom_up([g1_b9, g1_b9_n, g1_c9]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = NoDuplicatesSynthesizer(g1)
+    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
+    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
+    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
+    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
+    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    print(syn.bottom_up([g1_b7, g1_b7_n, g1_c7]))
+    print(syn.bottom_up([g1_b8, g1_b8_n, g1_c8]))
+    print(syn.bottom_up([g1_b9, g1_b9_n, g1_c9]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = Synthesizer(g2)
+    print(syn.bottom_up([g2_b1]))
+    print(syn.bottom_up([g2_b2]))
+    print(syn.bottom_up([g2_b3]))
+    print(syn.bottom_up([g2_b4]))
+    print(syn.bottom_up([g2_b5]))
+    print(syn.bottom_up([g2_b6]))
+    print(syn.bottom_up([g2_b7]))
+    print(syn.bottom_up([g2_b10]))
+    print(syn.bottom_up([g2_b11]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = BadExamplesSynthesizer(g2)
+    print(syn.bottom_up([g2_b1, g2_b1_n]))
+    print(syn.bottom_up([g2_b2, g2_b2_n]))
+    print(syn.bottom_up([g2_b3, g2_b3_n]))
+    print(syn.bottom_up([g2_b4, g2_b4_n]))
+    print(syn.bottom_up([g2_b5, g2_b5_n]))
+    print(syn.bottom_up([g2_b6, g2_b6_n]))
+    print(syn.bottom_up([g2_b7, g2_b7_n]))
+    print(syn.bottom_up([g2_b10, g2_b10_n]))
+    print(syn.bottom_up([g2_b11, g2_b11_n]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = ConstraintsSynthesizer(g2)
+    print(syn.bottom_up([g2_b1, g2_b1_n, g2_c1]))
+    print(syn.bottom_up([g2_b2, g2_b2_n, g2_c2]))
+    print(syn.bottom_up([g2_b3, g2_b3_n, g2_c3]))
+    print(syn.bottom_up([g2_b4, g2_b4_n, g2_c4]))
+    print(syn.bottom_up([g2_b5, g2_b5_n, g2_c5]))
+    print(syn.bottom_up([g2_b6, g2_b6_n, g2_c6]))
+    print(syn.bottom_up([g2_b7, g2_b7_n, g2_c7]))
+    print(syn.bottom_up([g2_b10, g2_b10_n, g2_c10]))
+    print(syn.bottom_up([g2_b11, g2_b11_n, g2_c11]))
+    print(syn.bottom_up([g2_b12, g2_b12_n, g2_c12]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = OptimizedSynthesizer(g2)
+    print(syn.bottom_up([g2_b1, g2_b1_n, g2_c1]))
+    print(syn.bottom_up([g2_b2, g2_b2_n, g2_c2]))
+    print(syn.bottom_up([g2_b3, g2_b3_n, g2_c3]))
+    print(syn.bottom_up([g2_b4, g2_b4_n, g2_c4]))
+    print(syn.bottom_up([g2_b5, g2_b5_n, g2_c5]))
+    print(syn.bottom_up([g2_b6, g2_b6_n, g2_c6]))
+    print(syn.bottom_up([g2_b7, g2_b7_n, g2_c7]))
+    print(syn.bottom_up([g2_b8, g2_b8_n, g2_c8]))
+    print(syn.bottom_up([g2_b9, g2_b9_n, g2_c9]))
+    print(syn.bottom_up([g2_b10, g2_b10_n, g2_c10]))
+    print(syn.bottom_up([g2_b11, g2_b11_n, g2_c11]))
+    print(syn.bottom_up([g2_b12, g2_b12_n, g2_c12]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    syn = NoDuplicatesSynthesizer(g2)
+    print(syn.bottom_up([g2_b1, g2_b1_n, g2_c1]))
+    print(syn.bottom_up([g2_b2, g2_b2_n, g2_c2]))
+    print(syn.bottom_up([g2_b3, g2_b3_n, g2_c3]))
+    print(syn.bottom_up([g2_b4, g2_b4_n, g2_c4]))
+    print(syn.bottom_up([g2_b5, g2_b5_n, g2_c5]))
+    print(syn.bottom_up([g2_b6, g2_b6_n, g2_c6]))
+    print(syn.bottom_up([g2_b7, g2_b7_n, g2_c7]))
+    print(syn.bottom_up([g2_b8, g2_b8_n, g2_c8]))
+    print(syn.bottom_up([g2_b9, g2_b9_n, g2_c9]))
+    print(syn.bottom_up([g2_b10, g2_b10_n, g2_c10]))
+    print(syn.bottom_up([g2_b11, g2_b11_n, g2_c11]))
+    print(syn.bottom_up([g2_b12, g2_b12_n, g2_c12]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
     s = time.time()
     syn = Synthesizer(g3)
     print(syn.bottom_up([g3_b1]))
@@ -402,6 +607,10 @@ def main():
     print(syn.bottom_up([g3_b5]))
     print(syn.bottom_up([g3_b6]))
     print(syn.bottom_up([g3_b7]))
+    print(syn.bottom_up([g3_b8]))
+    print(syn.bottom_up([g3_b9]))
+    print(syn.bottom_up([g3_b10]))
+    print(syn.bottom_up([g3_b11]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
@@ -414,92 +623,68 @@ def main():
     print(syn.bottom_up([g3_b5, g3_b5_n]))
     print(syn.bottom_up([g3_b6, g3_b6_n]))
     print(syn.bottom_up([g3_b7, g3_b7_n]))
+    print(syn.bottom_up([g3_b8, g3_b8_n]))
+    print(syn.bottom_up([g3_b9, g3_b9_n]))
+    print(syn.bottom_up([g3_b10, g3_b10_n]))
+    print(syn.bottom_up([g3_b11, g3_b11_n]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = ConstraintsSynthesizer(g3)
-    print(syn.bottom_up([g3_b1, g3_b1_n, g1_c1]))
-    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
-    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
-    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
-    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
-    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
-    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    print(syn.bottom_up([g3_b1, g3_b1_n, g3_c1]))
+    print(syn.bottom_up([g3_b2, g3_b2_n, g3_c2]))
+    print(syn.bottom_up([g3_b3, g3_b3_n, g3_c3]))
+    print(syn.bottom_up([g3_b4, g3_b4_n, g3_c4]))
+    print(syn.bottom_up([g3_b5, g3_b5_n, g3_c5]))
+    print(syn.bottom_up([g3_b6, g3_b6_n, g3_c6]))
+    print(syn.bottom_up([g3_b7, g3_b7_n, g3_c7]))
+    print(syn.bottom_up([g3_b8, g3_b8_n, g3_c8]))
+    print(syn.bottom_up([g3_b9, g3_b9_n, g3_c9]))
+    print(syn.bottom_up([g3_b10, g3_b10_n, g3_c10]))
+    print(syn.bottom_up([g3_b11, g3_b11_n, g3_c11]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = OptimizedSynthesizer(g3)
-    print(syn.bottom_up([g3_b1, g3_b1_n, []]))
-    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
-    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
-    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
-    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
-    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
-    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    print(syn.bottom_up([g3_b1, g3_b1_n, g3_c1]))
+    print(syn.bottom_up([g3_b2, g3_b2_n, g3_c2]))
+    print(syn.bottom_up([g3_b3, g3_b3_n, g3_c3]))
+    print(syn.bottom_up([g3_b4, g3_b4_n, g3_c4]))
+    print(syn.bottom_up([g3_b5, g3_b5_n, g3_c5]))
+    print(syn.bottom_up([g3_b6, g3_b6_n, g3_c6]))
+    print(syn.bottom_up([g3_b7, g3_b7_n, g3_c7]))
+    print(syn.bottom_up([g3_b8, g3_b8_n, g3_c8]))
+    print(syn.bottom_up([g3_b9, g3_b9_n, g3_c9]))
+    print(syn.bottom_up([g3_b10, g3_b10_n, g3_c10]))
+    print(syn.bottom_up([g3_b11, g3_b11_n, g3_c11]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
     s = time.time()
     syn = NoDuplicatesSynthesizer(g3)
-    print(syn.bottom_up([g3_b1, g3_b1_n, []]))
-    print(syn.bottom_up([g3_b2, g3_b2_n, g1_c2]))
-    print(syn.bottom_up([g3_b3, g3_b3_n, g1_c3]))
-    print(syn.bottom_up([g3_b4, g3_b4_n, g1_c4]))
-    print(syn.bottom_up([g3_b5, g3_b5_n, g1_c5]))
-    print(syn.bottom_up([g3_b6, g3_b6_n, []]))
-    print(syn.bottom_up([g3_b7, g3_b7_n, g1_c7]))
+    print(syn.bottom_up([g3_b1, g3_b1_n, g3_c1]))
+    print(syn.bottom_up([g3_b2, g3_b2_n, g3_c2]))
+    print(syn.bottom_up([g3_b3, g3_b3_n, g3_c3]))
+    print(syn.bottom_up([g3_b4, g3_b4_n, g3_c4]))
+    print(syn.bottom_up([g3_b5, g3_b5_n, g3_c5]))
+    print(syn.bottom_up([g3_b6, g3_b6_n, g3_c6]))
+    print(syn.bottom_up([g3_b7, g3_b7_n, g3_c7]))
+    print(syn.bottom_up([g3_b8, g3_b8_n, g3_c8]))
+    print(syn.bottom_up([g3_b9, g3_b9_n, g3_c9]))
+    print(syn.bottom_up([g3_b10, g3_b10_n, g3_c10]))
+    print(syn.bottom_up([g3_b11, g3_b11_n, g3_c11]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
     s = time.time()
-    syn = Synthesizer(g1)
-    print(syn.bottom_up([g1_b1]))
-    print(syn.bottom_up([g1_b2]))
-    print(syn.bottom_up([g1_b3]))
-    print(syn.bottom_up([g1_b4]))
-    print(syn.bottom_up([g1_b5]))
-    e = time.time()
-    print("{} {}".format(type(syn), e - s))
-
-    s = time.time()
-    syn = BadExamplesSynthesizer(g1)
-    print(syn.bottom_up([g1_b1, g1_b1_n]))
-    print(syn.bottom_up([g1_b2, g1_b2_n]))
-    print(syn.bottom_up([g1_b3, g1_b3_n]))
-    print(syn.bottom_up([g1_b4, g1_b4_n]))
-    print(syn.bottom_up([g1_b5, g1_b5_n]))
-    e = time.time()
-    print("{} {}".format(type(syn), e - s))
-
-    s = time.time()
-    syn = ConstraintsSynthesizer(g1)
-    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
-    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
-    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
-    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
-    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
-    e = time.time()
-    print("{} {}".format(type(syn), e - s))
-
-    s = time.time()
-    syn = OptimizedSynthesizer(g1)
-    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
-    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
-    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
-    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
-    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
-    e = time.time()
-    print("{} {}".format(type(syn), e - s))
-
-    s = time.time()
-    syn = NoDuplicatesSynthesizer(g1)
-    print(syn.bottom_up([g1_b1, g1_b1_n, g1_c1]))
-    print(syn.bottom_up([g1_b2, g1_b2_n, g1_c2]))
-    print(syn.bottom_up([g1_b3, g1_b3_n, g1_c3]))
-    print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
-    print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
+    syn = NoDuplicatesSynthesizer(g2_plus)
+    print(syn.bottom_up([g2_plus_b1, g2_plus_b1_n, g2_plus_c1]))
+    print(syn.bottom_up([g2_plus_b2, g2_plus_b2_n, g2_plus_c2]))
+    print(syn.bottom_up([g2_plus_b3, g2_plus_b3_n, g2_plus_c3]))
+    print(syn.bottom_up([g2_plus_b4, g2_plus_b4_n, g2_plus_c4]))
+    print(syn.bottom_up([g2_plus_b5, g2_plus_b5_n, g2_plus_c5]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
@@ -513,6 +698,27 @@ def main():
     print(syn.bottom_up([g1_b4, g1_b4_n, g1_c4]))
     print(syn.bottom_up([g1_b5, g1_b5_n, g1_c5]))
     print(syn.bottom_up([g1_b7, g1_b7_n, g1_c7]))
+    print(syn.bottom_up([g1_b8, g1_b8_n, g1_c8]))
+    print(syn.bottom_up([g1_b9, g1_b9_n, g1_c9]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    print(syn.bottom_up([g2_b1, g2_b1_n, g2_c1]))
+    print(syn.bottom_up([g2_b2, g2_b2_n, g2_c2]))
+    print(syn.bottom_up([g2_b10, g2_b10_n, g2_c10]))
+    print(syn.bottom_up([g2_b12, g2_b12_n, g2_c12]))
+    e = time.time()
+    print("{} {}".format(type(syn), e - s))
+
+    s = time.time()
+    print(syn.bottom_up([g3_b1, g3_b1_n, g3_c1]))
+    print(syn.bottom_up([g3_b2, g3_b2_n, g3_c2]))
+    print(syn.bottom_up([g3_b4, g3_b4_n, g3_c4]))
+    print(syn.bottom_up([g3_b5, g3_b5_n, g3_c5]))
+    print(syn.bottom_up([g3_b6, g3_b6_n, g3_c6]))
+    print(syn.bottom_up([g3_b9, g3_b9_n, g3_c9]))
+    print(syn.bottom_up([g3_b11, g3_b11_n, g3_c11]))
     e = time.time()
     print("{} {}".format(type(syn), e - s))
 
