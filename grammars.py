@@ -7,28 +7,51 @@ from multiprocessing.pool import Pool
 from inputs import *
 
 # noinspection PyGlobalUndefined
-global pool
+global pool  # Enables pool reuse
 
 
 def set_global_pool():
+    """
+    initiates pool with python processes globally
+    """
     global pool
     pool = Pool(7)  # type: Pool
 
 
 class GrammarType(Enum):
+    """
+    Helper Enum class to identify different types
+    of grammars
+    """
     NUM = "numeric"
     STR = "string"
     LIST = "list"
 
 
 class Grammar:
+    """
+    Exposes a convenient API for grammar specification
+    """
     def __init__(self, grammar_type: GrammarType, rules_groups, starting):
+        """
+        creates Grammar object
+        :param grammar_type: Enum identifies the type of grammar
+        :param rules_groups: Mapping from left side of rule to all of
+        its right side products. E := 1|2|3 is equivalent to
+        rules_groups[E] = [1, 2, 3]
+        :param starting: the starting expression of the grammar
+        """
         self.grammar_type = grammar_type
         self.rules_groups = rules_groups
         self.starting = starting
         self.trivial_programs = self.create_trivial_programs()
 
     def create_trivial_programs(self):
+        """
+        creating trivial programs of the grammar, such as
+        reverse(reverse(list))
+        :return: list of trivial programs
+        """
         if self.grammar_type == GrammarType.NUM:
             return self.numeric_trivial_programs()
         if self.grammar_type == GrammarType.STR:
@@ -55,8 +78,21 @@ class Grammar:
 
 # noinspection PyPep8Naming,PyBroadException
 class Synthesizer:
-
+    """
+    Synthesizer class implementing the heart of the program synthesis
+    including it's algorithms, bottom-up with observational equivalence
+    pruning.
+    """
     def __init__(self, g: Grammar):
+        """
+        P is a the set of lists of all programs in a given produced mapped to
+        their left side expression (rule name).
+        non_checked_programs is a list of all programs not yet checked.
+        E is the set of examples.
+        sizes is a set mapping the sizes of all the lists in P to their
+        left side expression (rule name).
+        :param g: the grammar used by the Synthesizer.
+        """
         self.g = g
         self.P = {}
         self.non_checked_programs = []
@@ -64,14 +100,20 @@ class Synthesizer:
         self.sizes = {}
 
     def bottom_up(self, E):
-        self.init_program(E)
-        if self.is_unrealizable():
+        """
+        The heart of the synthesis process. it is the implementation of the
+        classic bottom-up algorithm with observational equivalence
+        :param E: Examples the synthesizer works by
+        :return: A solution if found or None if non-realizability detected
+        """
+        self.init_program(E)  # save examples and creating root programs
+        if self.is_unrealizable():  # check if non-realizable
             return None
         # print(len(self.non_checked_programs))
         while True:
-            self.save_sizes()
-            self.grow()
-            if self.is_stuck():
+            self.save_sizes()  # save sizes to check for progress
+            self.grow()  # perform BFS 1-level programs creation
+            if self.is_stuck():  # check if in dead end
                 return None
             # print(len(self.non_checked_programs))
             for p in self.non_checked_programs:
@@ -84,13 +126,17 @@ class Synthesizer:
 
     def init_program(self, E):
         """
-        deduce the base programs by the grammar
-        :return:
+        Deduce the base programs by the grammar
         """
         self.E = E[0]
         self.init_starting_programs()
 
     def grow(self):
+        """
+        The BFS programs generation step of the bottom-up algorithm.
+        performs a single level of BFS in the programs tree of the
+        grammar
+        """
         new_P = copy.deepcopy(self.P)
         for r_g in self.g.rules_groups:
             for r in self.g.rules_groups[r_g]:
@@ -113,6 +159,12 @@ class Synthesizer:
         return True
 
     def produce(self, r: str):
+        """
+        Create new programs out of some rule and the existing programs
+        in the program tree
+        :param r: A right side of a rule (not ground program)
+        :return: A generator object of programs in a tuple format
+        """
         tokens = r.split()
         lists_for_product = []
         for t in tokens:
@@ -124,6 +176,10 @@ class Synthesizer:
         return split_programs
 
     def init_starting_programs(self):
+        """
+        Creates the root programs from them the algorithm can keep produce
+        new programs
+        """
         self.P = {}
         self.non_checked_programs = []
         for r in self.g.rules_groups:
@@ -137,10 +193,23 @@ class Synthesizer:
                         self.non_checked_programs.append(t)
 
     def insert_program_condition(self, p, r_g):
+        """
+        Check if a program satisfies a condition for being inserted
+        into the programs tree
+        :param p: A program in a string format
+        :param r_g: The rules group left-side expression
+        :return: True if p satisfies the condition, False otherwise
+        """
         return not any(s in p for s in self.g.trivial_programs) \
                and self.is_new_program(p, r_g)
 
     def is_unrealizable(self):
+        """
+        Check if the target program can be declared unrealizable. a program is
+        unrealizable if the examples from which it should synthesize the
+        program are inconsistent
+        :return: True if unrealizable, False otherwise
+        """
         input_dict = {}
         for i, o in self.E:
             try:  # make sure it's immutable!
@@ -155,11 +224,18 @@ class Synthesizer:
         return False
 
     def save_sizes(self):
+        """
+        Saving the sizes of all lists in self.P
+        """
         self.sizes = {}
         for r in self.P:
             self.sizes[r] = len(self.P[r])
 
     def is_stuck(self):
+        """
+        Check if the synthesizer does'nt produce any more new programs
+        :return: True if stuck, False otherwise
+        """
         for r in self.P:
             if self.sizes[r] != len(self.P[r]):
                 return False
@@ -167,20 +243,36 @@ class Synthesizer:
 
 
 class BadExamplesSynthesizer(Synthesizer):
+    """
+    Adds on the classic Synthesizer a negative-examples component. Each program
+    p must satisfy p(i) != o for each (i,o) in negative-examples in order
+    to be in the programs tree
+    """
     def __init__(self, g):
         super().__init__(g)
         self.E_not = None
 
     def init_program(self, E):
+        """
+        :param E: E[0] is a list of examples, E[1] is a list of negative
+        examples
+        """
         self.E = E[0]
         self.E_not = E[1]
         self.init_starting_programs()
 
     # noinspection PyUnusedLocal
-    def is_counter_example(self, t):
+    def is_counter_example(self, p):
+        """
+        Check if p is not satisfying p(i) != o for each (i,o)
+        in negative-examples
+        :param p: A program to check in a a string format
+        :return: True if not not satisfying p(i) != o for each (i,o)
+        in negative-examples, False otherwise
+        """
         for i, o in self.E_not:
             x_input = i
-            if eval(t) == o:
+            if eval(p) == o:
                 return True
         return False
 
@@ -189,6 +281,11 @@ class BadExamplesSynthesizer(Synthesizer):
                and not self.is_counter_example(p)
 
     def is_unrealizable(self):
+        """
+        Same as in Synthesizer with an addition of contradictions between
+        examples and negative-examples
+        :return: True if unrealizable, False otherwise
+        """
         input_dict = {}
         for i, o in self.E:
             try:  # make sure it's immutable!
@@ -213,11 +310,21 @@ class BadExamplesSynthesizer(Synthesizer):
 
 # noinspection PyPep8Naming
 class ConstraintsSynthesizer(BadExamplesSynthesizer):
+    """
+    Adds on the BadExamplesSynthesizer a user-defined constraints component.
+    Each program p must satisfy c(p) == True for each c in constraints in
+    order to be in the programs tree
+    """
     def __init__(self, g):
         super().__init__(g)
         self.C = None
 
     def init_program(self, E):
+        """
+
+        :param E: E[0] is a list of examples, E[1] is a list of negative
+        examples, E[2] is a list of user-defined constraints
+        """
         super().init_program(E)
         self.C = E[2]
 
@@ -226,20 +333,38 @@ class ConstraintsSynthesizer(BadExamplesSynthesizer):
                and self.is_matching_constraints(p)
 
     def is_matching_constraints(self, p):
+        """
+        Check that a program p satisfies all user-defined constraints
+        :param p: A program to check in a a string format
+        :return: True if p satisfies all user-defined constraints,
+        False otherwise
+        """
         return all([c(p) for c in self.C])
 
 
 # noinspection PyPep8Naming,PyBroadException
 class OptimizedSynthesizer(ConstraintsSynthesizer):
+    """
+    Adds on the ConstraintsSynthesizer a performance optimization. Drastically
+    improves performance and finds programs that lower performaning synthesizers
+    do not find in reasonable time
+    """
     def __init__(self, g):
         super().__init__(g)
         self.solution = None
 
     def bottom_up(self, E):
+        """
+        A slightly modified bottom-up algorithm
+        :param E: E[0] is a list of examples, E[1] is a list of negative
+        examples, E[2] is a list of user-defined constraints
+        :return: A solution if found or None if non-realizability detected
+        """
         self.init_program(E)
         if self.is_unrealizable():
             return None
         self.solution = None
+        # first check all starting programs
         try:
             for p in self.P[self.g.starting]:
                 if ground(p) and is_program_match(p, self.E):
@@ -266,6 +391,8 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
                             if self.insert_program_condition(p, r_g):
                                 new_P[r_g].append(p)
                                 if r_g == self.g.starting:
+                                    # The optimization - check a program right
+                                    # after it is created
                                     if is_program_match(p, self.E):
                                         self.solution = p
                                         return
@@ -276,6 +403,11 @@ class OptimizedSynthesizer(ConstraintsSynthesizer):
 
 # noinspection PyBroadException
 class NoDuplicatesSynthesizer(OptimizedSynthesizer):
+    """
+    Adds on the OptimizedSynthesizer a performance optimization. Removes
+    more duplicates than other synthesizers. Can lead to non-solved programs
+    where OptimizedSynthesizer would have been solved them
+    """
     def __init__(self, g):
         super().__init__(g)
         self.solution = None
@@ -308,6 +440,7 @@ class NoDuplicatesSynthesizer(OptimizedSynthesizer):
         for p2 in self.P[r_g]:
             if is_observational_equivalent(p, p2, self.E):
                 return False
+        # Check also programs in the same level of BFS
         for p2 in self.new_P[r_g]:
             if is_observational_equivalent(p, p2, self.E):
                 return False
@@ -316,6 +449,13 @@ class NoDuplicatesSynthesizer(OptimizedSynthesizer):
 
 # noinspection PyBroadException
 class ParallelSynthesizer(NoDuplicatesSynthesizer):
+    """
+    Adds on the NoDuplicatesSynthesizer a parallel component. Uses python
+    multiprocessing to use more resources in order speed up program synthesis.
+    Can solve programs that NoDuplicatesSynthesizer would not have solved, or
+    even declared un-realizable because duplicated programs (in terms of OE)
+    can slip into the programs tree
+    """
     def __init__(self, g: Grammar):
         super().__init__(g)
         self.depth = 0
@@ -329,7 +469,7 @@ class ParallelSynthesizer(NoDuplicatesSynthesizer):
         if self.depth < 3:
             super().grow()
         else:
-            global pool
+            global pool  # use global pool to save overhead!
             x = pool  # type: Pool
             self.new_P = {}
             for r in self.g.rules_groups:
@@ -339,6 +479,7 @@ class ParallelSynthesizer(NoDuplicatesSynthesizer):
                     if not ground(r):
                         list_products = map(lambda var: ("".join(var), r_g),
                                             self.produce(r))
+                        # parallel run insert_program_condition_parallel
                         for p, insert_res, match_res in x.imap_unordered(
                                 self.insert_program_condition_parallel,
                                 list_products, chunksize=32):
@@ -353,6 +494,12 @@ class ParallelSynthesizer(NoDuplicatesSynthesizer):
             self.new_P = None
 
     def insert_program_condition_parallel(self, A):
+        """
+        A dedicated parallel version of insert_program_condition
+        :param A: A[0] is a program in string format, A[1] is a rules gropu
+        left-side expression
+        :return: True if A[0] satisfies the condition, False otherwise
+        """
         p = A[0]
         r_g = A[1]
         insert_res = False
@@ -366,6 +513,13 @@ class ParallelSynthesizer(NoDuplicatesSynthesizer):
 
 # noinspection PyUnusedLocal
 def is_observational_equivalent(p1, p2, E):
+    """
+    Check if p1 and p2 are Observational Equivalent
+    :param p1: A program in string format
+    :param p2: A program in string format
+    :param E: A list of input-output pairs
+    :return: True if p1 ==(OE) p2, False otherwise
+    """
     for i, o in E:
         x_input = i
         if eval(p1) != eval(p2):
@@ -373,15 +527,14 @@ def is_observational_equivalent(p1, p2, E):
     return True
 
 
-def ground(t: str) -> bool:
+def ground(p: str) -> bool:
     """
-    check if a string represents program is terminal.
-    a terminal program is a program that cannot be
-    further produced
-    :param t:
-    :return:
+    Check if a program is terminal. a terminal program is a program
+    that cannot be further produced
+    :param p: a program in string format
+    :return: True if p is ground, False otherwise
     """
-    tokens = t.split()
+    tokens = p.split()
     for s in tokens:
         if s.isupper():
             return False
@@ -389,8 +542,14 @@ def ground(t: str) -> bool:
 
 
 # noinspection PyUnusedLocal
-def is_program_match(p, d):
-    for i, o in d:
+def is_program_match(p, E):
+    """
+    Check if a program p is matching the examples
+    :param p: A program in string format
+    :param E: A list of input-output pairs
+    :return: True if p matches all the examples in E, False otherwise
+    """
+    for i, o in E:
         x_input = i
         if eval(p) != o:
             return False

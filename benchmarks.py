@@ -92,7 +92,7 @@ def test_grammar(grammar: syn.Grammar, grammar_name, benchmarks: list,
 if __name__ == '__main__':
     if sys.argv[0]:
         print(sys.argv[0])
-    TIME = 150
+    TIME = 300
     synthesizers_classes = [syn.Synthesizer,
                             syn.BadExamplesSynthesizer,
                             syn.ConstraintsSynthesizer,
